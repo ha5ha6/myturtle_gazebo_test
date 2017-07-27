@@ -7,7 +7,7 @@ import numpy as np
 import random
 import rospy
 from deepq import DeepQ
-from memory_profiler import profile
+#from memory_profiler import profile
 
 #@profile
 def main():
