@@ -1,0 +1,156 @@
+import gym
+import rospy
+import numpy as np
+import cv2
+import sys
+import os
+import random
+
+from gym import utils, spaces
+from geometry_msgs.msg import Twist
+from std_srvs.srv import Empty
+from sensor_msgs.msg import Image
+from sensor_msgs.msg import LaserScan
+from gym.utils import seeding
+from cv_bridge import CvBridge, CvBridgeError
+
+class SimplemazeTurtlebotCameraNnEnv(gym.Env):
+
+    def __init__(self):
+
+        self.vel_pub=rospy.Publisher('/mobile_base/commands/velocity',Twist,queue_size=5)
+        self.unpause=rospy.ServiceProxy('/gazebo/unpause_physics',Empty)
+        self.pause=rospy.ServiceProxy('/gazebo/pause_physics',Empty)
+        self.reset_proxy=rospy.ServiceProxy('/gazebo/reset_simulation',Empty)
+
+        self.img_rows=32
+        self.img_cols=32
+        self.img_channels=1
+
+    def calculate_observation(self,data):
+        min_range=0.21
+        done=False
+        for i, item in enumerate(data.ranges):
+            if(min_range>data.ranges[i]>0):
+                done=True
+        return done
+
+    def _step(self,action):
+        rospy.wait_for_service('/gazebo/unpause_physics')
+        try:
+            self.unpause()
+        except rospy.ServiceException, e:
+            print("/gazebo/unpause_physics service call failed")
+
+
+        if action==0:#forward
+            vel_cmd=Twist()
+            vel_cmd.linear.x=0.2
+            vel_cmd.angular.z=0.0
+            self.vel_pub.publish(vel_cmd)
+
+        elif action==1:#left
+            vel_cmd=Twist()
+            vel_cmd.linear.x=0.05
+            vel_cmd.angular.z=0.2
+            self.vel_pub.publish(vel_cmd)
+        elif action==2:#right
+            vel_cmd=Twist()
+            vel_cmd.linear.x=0.05
+            vel_cmd.angular.z=-0.2
+            self.vel_pub.publish(vel_cmd)
+
+        data=None
+        while data is None:
+            try:
+                data=rospy.wait_for_message('/scan',LaserScan,timeout=5)
+            except:
+                pass
+
+        done=self.calculate_observation(data)
+
+
+        depth_data=None
+        success=False
+        cv_image=None
+
+        while depth_data is None or success is False:
+            try:
+                depth_data=rospy.wait_for_message('/camera/depth/image_raw',Image,timeout=5)
+                h=depth_data.height
+                w=depth_data.width
+                cv_depth=CvBridge().imgmsg_to_cv2(depth_data,"passthrough")
+                np.save('cv_depth_nan.npy',cv_depth)
+                cv_depth=np.nan_to_num(cv_depth)
+                np.save('cv_depth.npy',cv_depth)
+                if not (cv_depth[h/2,w/2]==178):
+                    success=True
+                else:
+                    pass
+
+            except:
+                pass
+
+        rospy.wait_for_service('/gazebo/pause_physics')
+
+        try:
+            self.pause()
+        except rospy.ServiceException,e:
+            print("/gazebo/pause_physics service call failed")
+
+        if not done:
+            if action==0:
+                reward=5
+            else:
+                reward=1
+        else:
+            reward=-200
+
+        cv_depth=cv2.resize(cv_depth,(self.img_rows,self.img_cols))
+        state=cv_depth.reshape(1,cv_depth.shape[0],cv_depth.shape[1],1)
+        return state,reward,done,{}
+        
+
+    def _reset(self):
+
+        rospy.wait_for_service('/gazebo/reset_simulation')
+        try:
+            self.reset_proxy()
+        except rospy.ServiceException,e:
+            print("/gazebo/reset_simulation service call failed")
+
+        rospy.wait_for_service('/gazebo/unpause_physics')
+        try:
+            self.unpause()
+        except rospy.ServiceException,e:
+            print("/gazebo/unpause_physics service call failed")
+
+        depth_data=None
+        success=False
+        cv_depth=None
+
+        while depth_data is None or success is False:
+            try:
+                depth_data=rospy.wait_for_message('/camera/depth/image_raw',Image,timeout=5)
+                h=depth_data.height
+                w=depth_data.width
+                cv_depth=CvBridge().imgmsg_to_cv2(depth_data,"passthrough")
+                cv_depth=np.nan_to_num(cv_depth)
+                if not (cv_depth[h/2,w/2]==178):
+                    success=True
+                else:
+                    pass
+
+            except:
+                pass
+
+        rospy.wait_for_service('/gazebo/pause_physics')
+
+        try:
+            self.pause()
+        except rospy.ServiceException,e:
+            print("/gazebo/pause_physics service call failed")
+
+        cv_depth=cv2.resize(cv_depth,(self.img_rows,self.img_cols))
+        state=cv_depth.reshape(1,cv_depth.shape[0],cv_depth.shape[1],1)
+        return state
