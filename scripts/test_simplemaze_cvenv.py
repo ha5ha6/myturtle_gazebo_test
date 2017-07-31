@@ -19,8 +19,8 @@ def main():
     env=gym.wrappers.Monitor(env,outdir,force=True)
     
 
-    episodes=1   #600
-    steps=1   #150
+    episodes=600   #600
+    steps=150   #150
 
     alpha=1e-3
     gamma=0.99
@@ -66,7 +66,7 @@ def main():
                 #print(deepQ.getTargetPredict(o))
                 qvalue.append(q)
                 a=deepQ.selectAction(q,epsilon)
-                np.save(str(t)+'state.npy',o)
+                #np.save(str(t)+'state.npy',o)
                 #a=0
                 newO,r,done,info=env.step(a)
                 deepQ.addMemory(o,a,r,newO,done)
